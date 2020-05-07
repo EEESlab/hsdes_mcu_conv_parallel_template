@@ -16,6 +16,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include "pulp.h"
 
 /*
   Inputs, weights and outputs are represented in fixed-point Q1.7 unsigned format:
@@ -29,6 +30,7 @@
 #define ROUNDBIT   (1 << (FRACTIONARY_BITS -1))
 #define SATURATION 255
 
+// K = 3
 void __attribute__ ((noinline)) ConvKxK_Naive  (uint8_t * In_Img, uint8_t * Out_Img, int R, int lb, int ub, int C, uint8_t  * Kernel, int K)
 {
   int r, c, k, i, j, w, t;
@@ -38,7 +40,7 @@ void __attribute__ ((noinline)) ConvKxK_Naive  (uint8_t * In_Img, uint8_t * Out_
 
   //image board is black
   for (r=lb; r < ub; r++) {
-    for (c=K/2; c < C-K/2; c++) {
+    for (c=3/2; c < C-3/2; c++) {
 
         S = 0;
         t = r*R + c;

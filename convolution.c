@@ -20,8 +20,10 @@
 #include <stdio.h>
 
 #define NB_ITER 1
+#define NB_CORES 8
 
-void check_function (int *errors, rt_perf_t *perf);
+static void cluster_entry (int *err_perf);
+static void check_function (int *err_perf);
 void __attribute__ ((noinline))  InitData         (uint8_t * __restrict__ Img,    int size);
 void __attribute__ ((noinline))  InitZero         (uint8_t * __restrict__ Img,    int size);
 void __attribute__ ((noinline))  InitKernel       (uint8_t * __restrict__ Kernel, int size);
@@ -30,15 +32,22 @@ int  __attribute__ ((noinline))  checkresult      (uint8_t * __restrict__ Out, u
 int main()
 {
   int errors = 0;
-  rt_perf_t perf;
-  for(int i=0; i<NB_ITER; i++) {
-    check_function(&errors, &perf);
-  }
-  synch_barrier();
+  int cycles[8] = {0,0,0,0,0,0,0,0};
+  int *err_perf[2];
+  err_perf[0] = &errors;
+  err_perf[1] = &cycles;
+
+  rt_cluster_mount(1, 0, 0, NULL);
+  // for(int i=0; i<NB_ITER; i++) {
+    rt_cluster_call(NULL, 0, cluster_entry, err_perf, NULL, 0, 0, NB_CORES, NULL);
+  // }
+  rt_cluster_mount(0, 0, 0, NULL);
 
   if(get_core_id() == 0) {
     printf("errors=%d\n", errors);
-    printf("cycles=%d\n", rt_perf_read(RT_PERF_CYCLES));
+    for(int i=0; i<8; i++) {
+      printf("cycles[%d]=%d\n", i, cycles[i]);
+    }
     return errors;
   }
 }
@@ -47,23 +56,26 @@ static uint8_t  __attribute__ ((section(".heapsram")))  Out[IMG_DIM];
 static uint8_t  __attribute__ ((section(".heapsram")))  In[IMG_DIM];
 static uint8_t  __attribute__ ((section(".heapsram")))  Kernel[FILT_DIM];
 
-void check_function(int *errors, rt_perf_t *perf) {
+static void cluster_entry(int *err_perf) {
+  rt_team_fork(NB_CORES, check_function, err_perf);
+}
+
+static void check_function(int *err_perf) {
+
+  int *errors = (int *) err_perf[0];
+  int *cycles = (int *) (err_perf[1] + 4*rt_core_id());
+  rt_perf_t perf;
 
   // start benchmark
-#ifdef CLUSTER
-  unsigned int core_id = get_core_id();
-  unsigned int num_cores = get_core_num();
-#else
-  unsigned int core_id = 0;
-  unsigned int num_cores = 1;
-#endif
+  unsigned int core_id = rt_core_id();
+  unsigned int num_cores = NB_CORES;
   unsigned int chunk;
   unsigned int lb, ub;
 
   // number of rows each core has to convolve
   chunk = IMG_ROW / num_cores;
   // lower bound
-  lb = 0;
+  lb = rt_core_id()*chunk;
   // upper bound
   ub = lb + chunk;
 
@@ -72,7 +84,7 @@ void check_function(int *errors, rt_perf_t *perf) {
   if(core_id == num_cores-1)
     ub-=1; //last core does not compute last row (black board)
 
-  synch_barrier();
+  rt_team_barrier();
 
   if(core_id == 0){
     printf("2D Convolution WINDOW=%d, DATA FORMAT Q%d.%d\n",FILT_WIN,8-FRACTIONARY_BITS,FRACTIONARY_BITS);
@@ -81,13 +93,14 @@ void check_function(int *errors, rt_perf_t *perf) {
     InitZero(Out, IMG_DIM);
   }
 
-  synch_barrier();
+  rt_team_barrier();
 
-  rt_perf_reset(perf);
-  rt_perf_start(perf);
+  rt_perf_reset(&perf);
+  rt_perf_start(&perf);
   ConvKxK_Naive(In, Out, IMG_ROW, lb, ub, IMG_COL, Kernel, 3);
-  synch_barrier();
-  rt_perf_stop(perf);
+  rt_team_barrier();
+  rt_perf_stop(&perf);
+  *cycles = rt_perf_read(RT_PERF_CYCLES);
   if(core_id == 0){
     *errors = checkresult(Out, Gold_Out_Img, IMG_DIM);
   }
