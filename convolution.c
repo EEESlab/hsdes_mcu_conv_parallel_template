@@ -22,7 +22,7 @@
 #define NB_ITER 1
 #define NB_CORES 8
 
-static void cluster_entry (int *err_perf);
+static void cl_main (int *err_perf);
 static void check_function (int *err_perf);
 void __attribute__ ((noinline))  InitData         (uint8_t * __restrict__ Img,    int size);
 void __attribute__ ((noinline))  InitZero         (uint8_t * __restrict__ Img,    int size);
@@ -37,8 +37,9 @@ int main()
   err_perf[0] = &errors;
   err_perf[1] = &cycles;
 
+  // Mount the cluster, call the "cl_main" function with NB_CORES, at return unmount the cluster
   rt_cluster_mount(1, 0, 0, NULL);
-  rt_cluster_call(NULL, 0, cluster_entry, err_perf, NULL, 0, 0, NB_CORES, NULL);
+  rt_cluster_call(NULL, 0, cl_main, err_perf, NULL, 0, 0, NB_CORES, NULL);
   rt_cluster_mount(0, 0, 0, NULL);
 
   if(get_core_id() == 0) {
@@ -50,16 +51,16 @@ int main()
   }
 }
 
+// These buffers are allocated in L2 memory heap
 static uint8_t  __attribute__ ((section(".heapl2ram"))) Out[IMG_DIM];
 static uint8_t  __attribute__ ((section(".heapl2ram"))) In[IMG_DIM];
 static uint8_t  __attribute__ ((section(".heapl2ram"))) Kernel[FILT_DIM];
 
-static uint8_t  __attribute__ ((section(".heapsram")))  L1_Out[IMG_DIM];
-static uint8_t  __attribute__ ((section(".heapsram")))  L1_In[IMG_DIM];
-static uint8_t  __attribute__ ((section(".heapsram")))  L1_Kernel[FILT_DIM];
+// TIP: something to be allocated in L1?
 
-static void cluster_entry(int *err_perf) {
-  rt_team_fork(NB_CORES, check_function, err_perf);
+// This is the main function executed on the cluster
+static void cl_main(int *err_perf) {
+  check_function(err_perf);
 }
 
 static void check_function(int *err_perf) {
@@ -70,14 +71,15 @@ static void check_function(int *err_perf) {
 
   // start benchmark
   unsigned int core_id = rt_core_id();
-  unsigned int num_cores = NB_CORES;
+  unsigned int num_cores = 1; // TIP: maybe change this?
   unsigned int chunk;
   unsigned int lb, ub;
 
+  // TIP: maybe change something here?
   // number of rows each core has to convolve
-  chunk = IMG_ROW / num_cores;
+  chunk = IMG_ROW;
   // lower bound
-  lb = rt_core_id()*chunk;
+  lb = 0;
   // upper bound
   ub = lb + chunk;
 
@@ -86,8 +88,6 @@ static void check_function(int *err_perf) {
   if(core_id == num_cores-1)
     ub-=1; //last core does not compute last row (black board)
 
-  rt_team_barrier();
-
   if(core_id == 0){
     printf("2D Convolution WINDOW=%d, DATA FORMAT Q%d.%d\n",FILT_WIN,8-FRACTIONARY_BITS,FRACTIONARY_BITS);
     InitKernel(Kernel,FILT_WIN);
@@ -95,33 +95,18 @@ static void check_function(int *err_perf) {
     InitZero(Out, IMG_DIM);
   }
 
-  rt_team_barrier();
-
   rt_perf_reset(&perf);
   rt_perf_start(&perf);
-
-  if(core_id == 0){
-    rt_dma_copy_t dma_c;
-    rt_dma_memcpy(Kernel, L1_Kernel, FILT_DIM, RT_DMA_DIR_EXT2LOC, 0, &dma_c);
-    rt_dma_memcpy(In,     L1_In, IMG_DIM, RT_DMA_DIR_EXT2LOC, 0, &dma_c);
-    rt_dma_wait(&dma_c);
-  }
-  rt_team_barrier();
-  ConvKxK_Naive(L1_In, L1_Out, IMG_ROW, lb, ub, IMG_COL, L1_Kernel, 3);
-  rt_team_barrier();
-  if(core_id == 0){
-    rt_dma_copy_t dma_c;
-    rt_dma_memcpy(Out, L1_Out, IMG_DIM, RT_DMA_DIR_LOC2EXT, 0, &dma_c);
-    rt_dma_wait(&dma_c);
-  }
-  rt_team_barrier();
+  // TIP: is data already in the right place?
+  ConvKxK_Naive(In, Out, IMG_ROW, lb, ub, IMG_COL, Kernel, 3);
+  // TIP: is data already in the right place?
   rt_perf_stop(&perf);
 
+  // TIP: do not change the following
   *cycles = rt_perf_read(RT_PERF_CYCLES);
   if(core_id == 0){
     *errors = checkresult(Out, Gold_Out_Img, IMG_DIM);
   }
-  rt_team_barrier();
 }
 
 // load kernel
