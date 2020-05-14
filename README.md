@@ -6,15 +6,15 @@ In particular, you should know how to open a terminal and have a (minimal!) conf
 In case the sentence "open a terminal" already brings you to total confusion, here you can find a Linux command line tutorial for absolute beginners:
 https://ubuntu.com/tutorials/command-line-for-beginners
 
-## PULPissimo
-PULPissimo, which will be presented during the lecture, is a single-core PULP system, with one RISC-V core augmented with digital signal processing extensions to the ISA.
-PULPissimo is fully open-source, including all the RTL code (written in SystemVerilog), FPGA synthesis scripts, the high-level simulator we use in this exercise, and the software running on it.
-You can get a look at PULPissimo here: https://github.com/pulp-platform/pulpissimo
+## PULP
+PULP, which will be presented during the lecture, is a multi-core PULP system, with 1+4-16 RISC-V cores augmented with digital signal processing extensions to the ISA.
+PULP is fully open-source, including all the RTL code (written in SystemVerilog), FPGA synthesis scripts, the high-level simulator we use in this exercise, and the software running on it.
+You can get a look at PULP here: https://github.com/pulp-platform/pulp
 
 For this simple exercise, you will not need to download the full platform: what you need is already available in your *pulp-box* virtual machine.
 
 ## The SDK
-The PULP Software Development Kit (SDK) is the main tool that we will use during this exercise. It will be configured to target PULPissimo, the single-core MCU platform that will be presented during the lecture.
+The PULP Software Development Kit (SDK) is the main tool that we will use during this exercise. It will be configured to target PULP.
 The *pulp-box* virtual platform comes with the SDK preinstalled; you can find more information about the SDK here if you are interested: https://github.com/pulp-platform/pulp-sdk.
 
 We will use mainly two components of the SDK:
@@ -41,15 +41,16 @@ You can do it in this way in your *pulp-box*; just open a terminal and type:
 ```
 source /pulp/sourceme.sh
 ```
-You should see the following output:
+As a first thing, download this example in your home folder and enter it:
 ```
-Configuring PULP SDK at: /pulp/pkg/sdk/2020.01.01
+git clone https://github.com/EEESLab/hsdes_mcu_conv_parallel_template
+cd hsdes_mcu_conv_parallel_template
 ```
-Now the SDK can be used in your setup. As a first thing, download this example in your home folder and enter it:
+Since the SDK in your VM is configured for PULPissimo instead of PULP, you also have to source another file:
 ```
-git clone https://github.com/EEESLab/hsdes_mcu_conv_naive
-cd hsdes_mcu_conv_naive
+source ./sourceme.sh
 ```
+Now the SDK can be used in your setup. 
 Now you can try to build the example:
 ```
 make clean all
@@ -62,6 +63,14 @@ make run
 The expected output is
 ```
 errors=0
-E
-cycles=265621
+cycles[0]=1069209
+cycles[1]=0
+cycles[2]=0
+cycles[3]=0
+cycles[4]=0
+cycles[5]=0
+cycles[6]=0
+cycles[7]=0
 ```
+The example runs the convolution **on the cluster**, but does not use any parallelization nor vectorization yet. Good luck!
+
