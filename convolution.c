@@ -38,9 +38,7 @@ int main()
   err_perf[1] = &cycles;
 
   rt_cluster_mount(1, 0, 0, NULL);
-  // for(int i=0; i<NB_ITER; i++) {
-    rt_cluster_call(NULL, 0, cluster_entry, err_perf, NULL, 0, 0, NB_CORES, NULL);
-  // }
+  rt_cluster_call(NULL, 0, cluster_entry, err_perf, NULL, 0, 0, NB_CORES, NULL);
   rt_cluster_mount(0, 0, 0, NULL);
 
   if(get_core_id() == 0) {
@@ -52,9 +50,13 @@ int main()
   }
 }
 
-static uint8_t  __attribute__ ((section(".heapsram")))  Out[IMG_DIM];
-static uint8_t  __attribute__ ((section(".heapsram")))  In[IMG_DIM];
-static uint8_t  __attribute__ ((section(".heapsram")))  Kernel[FILT_DIM];
+static uint8_t  __attribute__ ((section(".heapl2ram"))) Out[IMG_DIM];
+static uint8_t  __attribute__ ((section(".heapl2ram"))) In[IMG_DIM];
+static uint8_t  __attribute__ ((section(".heapl2ram"))) Kernel[FILT_DIM];
+
+static uint8_t  __attribute__ ((section(".heapsram")))  L1_Out[IMG_DIM];
+static uint8_t  __attribute__ ((section(".heapsram")))  L1_In[IMG_DIM];
+static uint8_t  __attribute__ ((section(".heapsram")))  L1_Kernel[FILT_DIM];
 
 static void cluster_entry(int *err_perf) {
   rt_team_fork(NB_CORES, check_function, err_perf);
@@ -97,14 +99,29 @@ static void check_function(int *err_perf) {
 
   rt_perf_reset(&perf);
   rt_perf_start(&perf);
-  ConvKxK_Naive(In, Out, IMG_ROW, lb, ub, IMG_COL, Kernel, 3);
+
+  if(core_id == 0){
+    rt_dma_copy_t dma_c;
+    rt_dma_memcpy(Kernel, L1_Kernel, FILT_DIM, RT_DMA_DIR_EXT2LOC, 0, &dma_c);
+    rt_dma_memcpy(In,     L1_In, IMG_DIM, RT_DMA_DIR_EXT2LOC, 0, &dma_c);
+    rt_dma_wait(&dma_c);
+  }
+  rt_team_barrier();
+  ConvKxK_Naive(L1_In, L1_Out, IMG_ROW, lb, ub, IMG_COL, L1_Kernel, 3);
+  rt_team_barrier();
+  if(core_id == 0){
+    rt_dma_copy_t dma_c;
+    rt_dma_memcpy(Out, L1_Out, IMG_DIM, RT_DMA_DIR_LOC2EXT, 0, &dma_c);
+    rt_dma_wait(&dma_c);
+  }
   rt_team_barrier();
   rt_perf_stop(&perf);
+
   *cycles = rt_perf_read(RT_PERF_CYCLES);
   if(core_id == 0){
     *errors = checkresult(Out, Gold_Out_Img, IMG_DIM);
   }
-  synch_barrier();
+  rt_team_barrier();
 }
 
 // load kernel
